@@ -1,0 +1,192 @@
+core service
+
+
+create table categories
+(
+    id          bigserial    NOT NULL primary key,
+    title       varchar(255) NOT NULL,
+    image       varchar(255),
+    description varchar(5000),
+    created_at  timestamp default current_timestamp,
+    updated_at  timestamp default current_timestamp
+);
+
+create table child_sub_categories
+(
+    id          bigserial    NOT NULL primary key,
+    category_id int          NOT NULL references categories (id),
+    title       varchar(255) NOT NULL,
+    image       varchar(255),
+    description varchar(5000),
+    created_at  timestamp default current_timestamp,
+    updated_at  timestamp default current_timestamp
+);
+create table brands_images
+(
+    id         bigserial    NOT NULL primary key,
+    path       varchar(255) NOT NULL,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+create table brands
+(
+    id              bigserial primary key,
+    title           varchar(255),
+    brands_image_id varchar(255) references brands_images (id),
+    created_at      timestamp default current_timestamp,
+    updated_at      timestamp default current_timestamp
+);
+
+CREATE TABLE products_images
+(
+    id         bigserial    NOT NULL primary key,
+    path       varchar(255) NOT NULL,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+
+create table products
+(
+    id                      bigserial primary key,
+    category_id             bigint        NOT NULL references categories (id),
+    child_sub_categories_id bigint        NOT NULL references child_sub_categories (id),
+    products_images_id      bigint        NOT NULL references products_images (id),
+    vendor_code             varchar(8),
+    title                   varchar(255),
+    price                   int,
+    short_description       varchar(1000) NOT NULL,
+    full_description        varchar(5000) NOT NULL,
+    created_at              timestamp default current_timestamp,
+    updated_at              timestamp default current_timestamp
+);
+
+
+create table orders
+(
+    id          bigserial primary key,
+    username    varchar(255) not null,
+    total_price int          not null,
+    address     varchar(255),
+    phone       varchar(255),
+    created_at  timestamp default current_timestamp,
+    updated_at  timestamp default current_timestamp
+);
+
+create table order_items
+(
+    id                bigserial primary key,
+    product_id        bigint not null references products (id),
+    order_id          bigint not null references orders (id),
+    quantity          int    not null,
+    price_per_product int    not null,
+    price             int    not null,
+    created_at        timestamp default current_timestamp,
+    updated_at        timestamp default current_timestamp
+);
+
+CREATE TABLE coupon_images
+(
+    id         bigserial    NOT NULL primary key,
+    path       varchar(255) NOT NULL,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+
+create table coupon_categories
+(
+    id         bigserial primary key,
+    title      varchar(255),
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+
+create table coupons
+(
+    id                   bigserial primary key,
+    product_id           bigint not null references products (id),
+    coupon_categories_id bigint not null references coupon_categories (id),
+    coupon_image_id      bigint not null references coupon_images (id),
+    title                varchar(255),
+    code                 varchar(255),
+    usage_count          int    NOT NULL,
+    price_discount       int    NOT NULL,
+    start_date           timestamp,
+    end_date             timestamp,
+    user_limit           int    NOT NULL,
+    created_at           timestamp default current_timestamp,
+    updated_at           timestamp default current_timestamp
+);
+
+create table banners
+(
+    id          bigserial primary key,
+    title       varchar(255),
+    description varchar(255),
+    created_at  timestamp default current_timestamp,
+    updated_at  timestamp default current_timestamp
+);
+
+create table favourites(
+                           id          bigserial primary key,
+                           product_id        bigint not null references products (id),
+                           username    varchar(255) not null,
+                           created_at  timestamp default current_timestamp,
+                           updated_at  timestamp default current_timestamp
+);
+
+create table ratings(
+                        id          bigserial primary key,
+                        product_id        bigint not null references products (id),
+                        username    varchar(255) not null,
+                        points      int,
+                        created_at  timestamp default current_timestamp,
+                        updated_at  timestamp default current_timestamp
+);
+create table sales (
+                       id          bigserial primary key,
+                       product_id        bigint not null references products (id),
+                       brand_id bigint not null references brands (id),
+                       category_id bigint not null references categories (id),
+                       discount int NOT NULL,
+                       start_date           timestamp,
+                       end_date             timestamp,
+                       created_at  timestamp default current_timestamp,
+                       updated_at  timestamp default current_timestamp
+);
+
+
+
+auth service
+
+
+
+
+create table users
+(
+    id         bigserial primary key,
+    username   varchar(36) not null,
+    password   varchar(80) not null,
+    email      varchar(50) unique,
+    first_name            VARCHAR(50) NOT NULL,
+    last_name             VARCHAR(50) NOT NULL,
+    phone                 VARCHAR(15) NOT NULL,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+
+create table roles
+(
+    id         bigserial primary key,
+    name       varchar(50) not null,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp
+);
+
+CREATE TABLE users_roles
+(
+    user_id    bigint not null references users (id),
+    role_id    bigint not null references roles (id),
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp,
+    primary key (user_id, role_id)
+);
