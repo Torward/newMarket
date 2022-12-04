@@ -1,0 +1,547 @@
+import com.geekbrains.spring.web.core.entities.Product;
+import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+@Data
+public class Cart {
+    private List<OrderItemDto> items;
+    private int totalPrice;
+
+    public Cart() {
+        this.items = new ArrayList<>();
+    }
+
+    public void add(Product product) {
+        if (add(product.getId())) {
+            return;
+        }
+        items.add(new OrderItemDto(product));
+        recalculate();
+    }
+
+    public boolean add(Long id) {
+        for (OrderItemDto o : items) {
+            if (o.getProductId().equals(id)) {
+                o.changeQuantity(1);
+                recalculate();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void decrement(Long id) {
+        Iterator<OrderItemDto> iter = items.iterator();
+        while (iter.hasNext()) {
+            OrderItemDto o = iter.next();
+            if (o.getProductId().equals(id)) {
+                o.changeQuantity(-1);
+                if (o.getQuantity() <= 0) {
+                    iter.remove();
+                }
+                recalculate();
+                return;
+            }
+        }
+    }
+
+    public void remove(Long id) {
+        items.removeIf(o -> o.getProductId().equals(id));
+        recalculate();
+    }
+
+    public void clear() {
+        items.clear();
+        totalPrice = 0;
+    }
+
+    private void recalculate() {
+        totalPrice = 0;
+        for (OrderItemDto o : items) {
+            totalPrice += o.getPrice();
+        }
+    }
+
+    public void merge(Cart another){
+        for (OrderItemDto anotherItem : another.items){
+            boolean merged = false;
+            for (OrderItemDto myItem : items) {
+                if (myItem.getProductId().equals(anotherItem.getProductId())){
+                    myItem.changeQuantity(anotherItem.getQuantity());
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged){
+                items.add(anotherItem);
+            }
+        }
+        recalculate();
+        another.clear();
+    }
+}
+
+
+
+package com.geekbrains.spring.web.core.services;
+
+import com.geekbrains.spring.web.api.exceptions.ResourceNotFoundException;
+import com.geekbrains.spring.web.core.dto.Cart;
+import com.geekbrains.spring.web.core.entities.Product;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.UUID;
+import java.util.function.Consumer;
+
+@Service
+@RequiredArgsConstructor
+public class CartService {
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final ProductsService productsService;
+
+    @Value("${utils.cart.prefix}")
+    private String cartPrefix;
+
+    public String getCartUuidFromSuffix(String suffix){
+        return cartPrefix + suffix;
+    }
+
+    public String generateCartUuid(){
+        return UUID.randomUUID().toString();
+    }
+
+    public Cart getCurrentCart(String cartKey) {
+        if (!redisTemplate.hasKey(cartKey)){
+            redisTemplate.opsForValue().set(cartKey, new Cart());
+        }
+        return (Cart) redisTemplate.opsForValue().get(cartKey);
+    }
+
+    public void addToCart(String cartKey, Long productId) {
+        Product product = productsService.findById(productId).orElseThrow(() -> new ResourceNotFoundException("Невозможно добавить продукт!"));
+       execute(cartKey, c ->{
+          c.add(product);
+       });
+    }
+
+    public void clearCart(String cartKey) {
+        execute(cartKey, Cart::clear);
+    }
+    public void removeItemFromCart(String cartKey, Long productId){
+        execute(cartKey, c ->{
+            c.remove(productId);
+        });
+    }
+    public void decrementItem(String cartKey, Long productId){
+        execute(cartKey, c ->{
+            c.decrement(productId);
+        });
+    }
+
+    private void execute(String cartKey, Consumer<Cart> action) {
+        Cart cart = getCurrentCart(cartKey);
+        action.accept(cart);
+        redisTemplate.opsForValue().set(cartKey, cart);
+    }
+
+    public void merge(String userCartKey, String guestCartKey){
+        Cart guestCart = getCurrentCart(guestCartKey);
+        Cart userCart = getCurrentCart(userCartKey);
+        userCart.merge(guestCart);
+        updateCart(guestCartKey, guestCart);
+        updateCart(userCartKey, userCart);
+    }
+
+    private void updateCart(String cartKey, Cart cart) {
+        redisTemplate.opsForValue().set(cartKey, cart);
+    }
+}
+
+
+
+package com.geekbrains.spring.web.core.controllers;
+
+import com.geekbrains.spring.web.api.dto.StringResponse;
+import com.geekbrains.spring.web.core.dto.Cart;
+import com.geekbrains.spring.web.core.services.CartService;
+import com.geekbrains.spring.web.core.services.ProductsService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/cart")
+@RequiredArgsConstructor
+public class CartsController {
+    private final CartService cartService;
+    private final ProductsService productsService;
+
+    @GetMapping("/{uuid}")
+    public Cart getCart(@RequestHeader(required = false) String username, @PathVariable String uuid) {
+        return cartService.getCurrentCart(getCurrentCartUuid(username, uuid));
+
+    }
+
+    @GetMapping("/generate")
+    public StringResponse getCart() {
+        return new StringResponse(cartService.generateCartUuid());
+    }
+
+    @GetMapping("/{uuid}/add/{productId}")
+    public void add(@RequestHeader(required = false) String username, @PathVariable String uuid,
+                    @PathVariable Long productId) {
+        cartService.addToCart(getCurrentCartUuid(username, uuid), productId);
+    }
+
+    private String getCurrentCartUuid(String username, String uuid) {
+        if (username != null) {
+            return cartService.getCartUuidFromSuffix(username);
+        }
+        return cartService.getCartUuidFromSuffix(uuid);
+    }
+
+    @GetMapping("/{uuid}/decrement/{productId}")
+    public void decrement(@RequestHeader(required = false) String username, @PathVariable String uuid,
+                          @PathVariable Long productId) {
+        cartService.decrementItem(getCurrentCartUuid(username, uuid), productId);
+    }
+
+    @GetMapping("/{uuid}/remove/{productId}")
+    public void remove(@RequestHeader(required = false) String username, @PathVariable String uuid,
+                       @PathVariable Long productId) {
+        cartService.removeItemFromCart(getCurrentCartUuid(username, uuid), productId);
+    }
+
+    @GetMapping("/{uuid}/clear")
+    public void clearCart(@RequestHeader(required = false) String username, @PathVariable String uuid) {
+        cartService.clearCart(getCurrentCartUuid(username, uuid));
+    }
+
+    @GetMapping("/{uuid}/merge")
+    public void merge(@RequestHeader String username, @PathVariable String uuid){
+        cartService.merge(
+                getCurrentCartUuid(username, null),
+                getCurrentCartUuid(null, uuid)
+        );
+    }
+
+}
+
+
+
+package com.geekbrains.spring.web.core.entities;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Entity
+@Table(name = "orders")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
+
+    @OneToMany(mappedBy = "order", cascade = {CascadeType.PERSIST, CascadeType.REMOVE})
+    private List<OrderItem> items;
+
+   @Column(name = "username")
+    private String username;
+
+    @Column(name = "total_price")
+    private Integer totalPrice;
+
+    @Column(name = "address")
+    private String address;
+
+    @Column(name = "phone")
+    private String phone;
+
+    @CreationTimestamp
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+}
+
+
+
+package com.geekbrains.spring.web.core.entities;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "order_items")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class OrderItem {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
+
+   @ManyToOne
+   @JoinColumn(name = "product_id")
+    private Product product;
+
+    @ManyToOne
+    @JoinColumn(name = "order_id")
+    private Order order;
+
+    @Column(name = "quantity")
+    private Integer quantity;
+
+    @Column(name = "price_per_product")
+    private Integer pricePerProduct;
+
+    @Column(name = "price")
+    private Integer price;
+
+    @CreationTimestamp
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+}
+
+
+
+package com.geekbrains.spring.web.core.dto;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+public class OrderDto {
+    private Long id;
+    private String username;
+    private List<OrderItemDto>items;
+    private Integer totalPrice;
+    private String address;
+    private String phone;
+
+
+}
+
+
+package com.geekbrains.spring.web.core.dto;
+
+import com.geekbrains.spring.web.core.entities.Product;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class OrderItemDto {
+    private Long productId;
+    private String productTitle;
+    private int quantity;
+    private int pricePerProduct;
+    private int price;
+
+    public OrderItemDto(Product product) {
+        this.productId = product.getId();
+        this.productTitle = product.getTitle();
+        this.quantity = 1;
+        this.pricePerProduct = product.getPrice();
+        this.price = product.getPrice();
+    }
+
+    public void changeQuantity(int delta) {
+        this.quantity += delta;
+        this.price = this.quantity * this.pricePerProduct;
+    }
+}
+
+
+
+package com.geekbrains.spring.web.core.repositories;
+
+import com.geekbrains.spring.web.core.entities.Order;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface OrdersRepository extends JpaRepository<Order, Long>{
+    @Query("select o from Order o where o.username = ?1")
+    List<Order> findAllByUsername(String username);
+}
+
+
+
+package com.geekbrains.spring.web.core.services;
+
+import com.geekbrains.spring.web.api.exceptions.ResourceNotFoundException;
+
+import com.geekbrains.spring.web.core.dto.Cart;
+import com.geekbrains.spring.web.core.dto.OrderDetailsDto;
+import com.geekbrains.spring.web.core.entities.Order;
+import com.geekbrains.spring.web.core.entities.OrderItem;
+import com.geekbrains.spring.web.core.repositories.OrdersRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class OrdersService {
+ private final OrdersRepository ordersRepository;
+ private final CartService cartService;
+ private final ProductsService productsService;
+
+ @Transactional
+ public void createOrder(String username, OrderDetailsDto orderDetailsDto){
+     String cartKey = cartService.getCartUuidFromSuffix(username);
+     Cart currentCart = cartService.getCurrentCart(cartKey);
+     Order order = new Order();
+     order.setAddress(orderDetailsDto.getAddress());
+     order.setPhone(orderDetailsDto.getPhone());
+     order.setUsername(username);
+     order.setTotalPrice(currentCart.getTotalPrice());
+
+     List<OrderItem> items = currentCart.getItems().stream()
+             .map(o -> {
+                 OrderItem item = new OrderItem();
+                 item.setOrder(order);
+                 item.setQuantity(o.getQuantity());
+                 item.setPricePerProduct(o.getPricePerProduct());
+                 item.setPrice(o.getPrice());
+                 item.setProduct(productsService.findById(o.getProductId()).orElseThrow(()-> new ResourceNotFoundException("Продукта с таким ID не существует!")));
+
+                 return item;
+             }).collect(Collectors.toList());
+     order.setItems(items);
+     ordersRepository.save(order);
+     cartService.clearCart(cartKey);
+ }
+ public List<Order> findOrdersByUsername(String username){
+    return ordersRepository.findAllByUsername(username);
+ }
+
+}
+
+
+
+package com.geekbrains.spring.web.core.converters;
+
+import com.geekbrains.spring.web.core.dto.OrderDto;
+import com.geekbrains.spring.web.core.entities.Order;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.stream.Collectors;
+
+@Component
+@RequiredArgsConstructor
+public class OrderConverter {
+    private final OrderItemConverter orderItemConverter;
+    public Order dtoToEntity(OrderDto orderDto) {
+        throw new UnsupportedOperationException();
+    }
+
+    public OrderDto entityToDto(Order order) {
+        OrderDto out = new OrderDto();
+        out.setId(order.getId());
+        out.setAddress(order.getAddress());
+        out.setPhone(order.getPhone());
+        out.setTotalPrice(order.getTotalPrice());
+        out.setUsername(order.getUsername());
+        out.setItems(order.getItems().stream().map(orderItemConverter::entityToDto).collect(Collectors.toList()));
+        return out;
+        
+    }
+}
+
+
+
+package com.geekbrains.spring.web.core.converters;
+
+import com.geekbrains.spring.web.core.dto.OrderItemDto;
+import com.geekbrains.spring.web.core.entities.OrderItem;
+import org.springframework.stereotype.Component;
+
+@Component
+public class OrderItemConverter {
+    public OrderItem dtoToEntity(OrderItemDto orderItemDto) {
+        throw new UnsupportedOperationException();
+    }
+
+    public OrderItemDto entityToDto(OrderItem orderItem) {
+        return new OrderItemDto(orderItem.getProduct().getId(), orderItem.getProduct().getTitle(), orderItem.getQuantity(), orderItem.getPricePerProduct(), orderItem.getPrice());
+
+    }
+}
+
+
+
+package com.geekbrains.spring.web.core.controllers;
+
+import com.geekbrains.spring.web.core.converters.OrderConverter;
+import com.geekbrains.spring.web.core.dto.OrderDetailsDto;
+import com.geekbrains.spring.web.core.dto.OrderDto;
+import com.geekbrains.spring.web.core.services.OrdersService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/v1/orders")
+@RequiredArgsConstructor
+public class OrdersController {
+    private final OrdersService ordersService;
+    private final OrderConverter orderConverter;
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public void creteOrder(@RequestHeader String username, @RequestBody OrderDetailsDto orderDetailsDto) {
+        ordersService.createOrder(username, orderDetailsDto);
+    }
+
+    @GetMapping
+    public List<OrderDto> getCurrentUserOrders(@RequestHeader String username){
+        return ordersService.findOrdersByUsername(username).stream()
+                .map(orderConverter::entityToDto).collect(Collectors.toList());
+    }
+}
