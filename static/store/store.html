@@ -1,0 +1,86 @@
+<div class="container">
+    <p></p>
+    <div class="row">
+        <div class="col-md-4 filter">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Фильтры</h5>
+                </div>
+                <form novalidate ng-submit="loadProducts()">
+                    <div class="form-floating input-group-sm">
+                        <input type="text" class="form-control" id="filterTitle" placeholder=""
+                               ng-model="filter.title_part">
+                        <label for="filterTitle">Название продукта</label>
+                    </div>
+                    <p></p>
+                    <div class="form-floating input-group-sm">
+                        <input type="number" class="form-control" id="filterMinPrice" placeholder=""
+                               ng-model="filter.min_price">
+                        <label for="filterMinPrice">Мин. цена</label>
+                    </div>
+                    <p></p>
+                    <div class="form-floating input-group-sm">
+                        <input type="number" class="form-control" id="filterMaxPrice" placeholder=""
+                               ng-model="filter.max_price">
+                        <label for="filterMaxPrice">Макс. цена</label>
+                    </div>
+                    <p></p>
+                    <button class="btn btn-sm" type="submit">Применить</button>
+                </form>
+            </div>
+        </div>
+        <div class="col-md-8 catalog">
+            <h3>Каталог товаров</h3>
+            <div class="row md-4">
+                <div class="col-md-4 col-sm-3" ng-repeat="p in ProductsPage.content">
+                    <div class="product-grid">
+                        <div class="product-image">
+                            <a href="#">
+                                <img class="pic-1" src="https://www.w3schools.com/bootstrap4/img_avatar4.png">
+                                <img class="pic-2" src="https://www.w3schools.com/bootstrap4/img_avatar3.png">
+                            </a>
+                            <ul class="social">
+                                <li><a href="" data-tip="Quick View"><i class="fa fa-search"></i></a></li>
+                                <li><a href="" data-tip="Add to Wishlist"><i class="fa fa-shopping-bag"></i></a></li>
+                                <li><a href="" data-tip="Add to Cart" ng-click="addToCart(p.id)"><i
+                                        class="fa fa-shopping-cart"></i></a></li>
+                                <p></p>
+                                <li>
+                                    <button class="btn btn-primary" ng-click="navToEditProductPage(p.id)">Изменить
+                                    </button>
+                                </li>
+                            </ul>
+                            <span class="product-new-label">Sale</span>
+                            <span class="product-discount-label">20%</span>
+                        </div>
+                        <ul class="rating">
+                            <li class="fa fa-star"></li>
+                            <li class="fa fa-star"></li>
+                            <li class="fa fa-star"></li>
+                            <li class="fa fa-star"></li>
+                            <li class="fa fa-star disable"></li>
+                        </ul>
+                        <div class="product-content">
+                            <h3 class="title"><a href="#">{{p.title}}</a></h3>
+                            <div class="price">{{p.price}}
+                                <span>$16</span>
+                            </div>
+                            <a class="add-to-cart" href="" ng-click="addToCart(p.id)">+В корзину</a>
+                        </div>
+                    </div>
+                </div>
+                <p></p>
+            </div>
+            <p></p>
+
+            <nav aria-label="Page navigation">
+                <ul class="pagination">
+                    <li class="page-item" ng-repeat="pageIndex in paginationArray">
+                        <button class="page-link" ng-click="loadProducts(pageIndex)">{{pageIndex}}</button>
+                    </li>
+                </ul>
+            </nav>
+            <p></p>
+        </div>
+    </div>
+</div>
